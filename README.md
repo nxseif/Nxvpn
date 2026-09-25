@@ -131,17 +131,8 @@ Stop everything:
 
 NxVPN is a personal learning project.
 
-The goal is to learn more about:
 
-* Linux networking
-* network namespaces
-* virtual Ethernet interfaces
-* WireGuard
-* Bash scripting
-* routing
-* process and interface management
-
-More features and improvements will be added as I continue learning.
+More features and improvements will be added as I continue working on it 
 
 ## Security
 
@@ -153,4 +144,4 @@ Private keys and local configuration files are ignored with `.gitignore`.
 
 Created by **nxseif**.
 
-Personal project built while learning Linux networking, Bash, and DevOps.
+Personal project built while learning Linux networking, Bash, and DevOps

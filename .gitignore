@@ -1,0 +1,4 @@
+keys/
+configs/client.conf
+configs/client-wg.conf
+configs/server.conf

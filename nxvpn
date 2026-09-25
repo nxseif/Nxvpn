@@ -1,0 +1,221 @@
+#!/bin/bash
+
+ns="vpn-client"
+hostveth="veth-host"
+nsveth="nxseif-host"
+hostip="172.27.100.1/24"
+nsip="172.27.100.2/24"
+wgif="wg0"
+wgip="172.27.50.2/24"
+servernet="172.27.50.0/24"
+conf="$HOME/projects/nxvpn/configs/client-wg.conf"
+
+nsrun() {
+    sudo ip netns exec "$ns" "$@"
+}
+
+nsexists() {
+    sudo ip netns list | grep -q "^$ns"
+}
+
+vethexists() {
+    ip link show "$hostveth" > /dev/null 2>&1
+}
+
+wgexists() {
+    nsrun ip link show "$wgif" > /dev/null 2>&1
+}
+
+turnon() {
+    echo "starting nxvpn"
+
+    if nsexists
+    then
+        echo "namespace $ns already exists"
+    else
+        echo "creating namespace $ns"
+        sudo ip netns add "$ns"
+    fi
+
+    if vethexists
+    then
+        echo "veth pair already exists"
+    else
+        echo "creating veth pair"
+        sudo ip link add "$hostveth" type veth peer name "$nsveth"
+
+        echo "moving $nsveth into $ns"
+        sudo ip link set "$nsveth" netns "$ns"
+
+        echo "setting ip addresses"
+        sudo ip addr add "$hostip" dev "$hostveth"
+        nsrun ip addr add "$nsip" dev "$nsveth"
+
+        echo "bringing interfaces up"
+        sudo ip link set "$hostveth" up
+        nsrun ip link set "$nsveth" up
+        nsrun ip link set lo up
+    fi
+
+    if wgexists
+    then
+        echo "$wgif already exists"
+    else
+        echo "creating $wgif"
+        nsrun ip link add "$wgif" type wireguard
+
+        echo "setting vpn ip on $wgif"
+        nsrun ip addr add "$wgip" dev "$wgif"
+
+        echo "loading wireguard config"
+        nsrun wg setconf "$wgif" "$conf"
+
+        echo "bringing $wgif up"
+        nsrun ip link set "$wgif" up
+    fi
+
+    if nsrun ip route show | grep -q "$servernet"
+    then
+        echo "route to $servernet already exists"
+    else
+        echo "adding route to $servernet"
+        nsrun ip route add "$servernet" dev "$wgif"
+    fi
+
+    echo "nxvpn is up"
+    echo
+    showstatus
+}
+
+turnoff() {
+    echo "stopping nxvpn"
+
+    if nsexists
+    then
+        if wgexists
+        then
+            echo "removing $wgif"
+            nsrun ip link delete "$wgif"
+        fi
+
+        echo "deleting namespace $ns"
+        sudo ip netns delete "$ns"
+    else
+        echo "namespace $ns already gone"
+    fi
+
+    if vethexists
+    then
+        echo "removing host veth $hostveth"
+        sudo ip link delete "$hostveth"
+    else
+        echo "host veth already gone"
+    fi
+
+    echo "nxvpn is stopped"
+}
+
+showstatus() {
+    echo "nxvpn status"
+    echo
+
+    if nsexists
+    then
+        echo "namespace : on"
+    else
+        echo "namespace : off"
+    fi
+
+    if vethexists
+    then
+        echo "host veth : on"
+    else
+        echo "host veth : off"
+    fi
+
+    if nsexists && wgexists
+    then
+        echo "wireguard : on"
+        echo "vpn ip    : $wgip"
+        echo "server    : $servernet"
+        echo
+        nsrun wg show "$wgif"
+    else
+        echo "wireguard : off"
+    fi
+}
+
+showhelp() {
+    echo "nxvpn - manage the local wireguard vpn lab"
+    echo
+    echo "usage:"
+    echo "  nxvpn on       start the vpn"
+    echo "  nxvpn off      stop the vpn and clean up"
+    echo "  nxvpn status   show whether the vpn is running"
+    echo "  nxvpn menu     interactive menu"
+    echo "  nxvpn help     show this help message"
+}
+
+showmenu() {
+    while true
+    do
+        echo
+        echo "========== nxvpn =========="
+        echo "1 turn vpn on"
+        echo "2 turn vpn off"
+        echo "3 show status"
+        echo "4 help"
+        echo "5 exit"
+        echo
+        read -rp "choose an option: " choice
+
+        if [ "$choice" = "1" ]
+        then
+            turnon
+        elif [ "$choice" = "2" ]
+        then
+            turnoff
+        elif [ "$choice" = "3" ]
+        then
+            showstatus
+        elif [ "$choice" = "4" ]
+        then
+            showhelp
+        elif [ "$choice" = "5" ]
+        then
+            echo "bye"
+            break
+        else
+            echo "not a valid option try again"
+        fi
+    done
+}
+
+if [ -z "$1" ]
+then
+    cmd="help"
+else
+    cmd="$1"
+fi
+
+if [ "$cmd" = "on" ]
+then
+    turnon
+elif [ "$cmd" = "off" ]
+then
+    turnoff
+elif [ "$cmd" = "status" ]
+then
+    showstatus
+elif [ "$cmd" = "menu" ]
+then
+    showmenu
+elif [ "$cmd" = "help" ]
+then
+    showhelp
+else
+    echo "unknown command $cmd"
+    echo
+    showhelp
+    exit 1
+fi
